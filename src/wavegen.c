@@ -1,4 +1,76 @@
 #include <stdio.h>
+#ifndef M_PI
+    #define M_PI 3.14159265358979323846
+#endif
 #include <math.h>
 #include <stdlib.h>
 #include "pico/stdlib.h"
+
+#define N 1000
+short int wavetable[N];
+
+#define RATE 20000
+
+typedef enum {
+    SINE,
+    TRIANGLE,
+    SAWTOOTH,
+    SQUARE
+} wave_t;
+
+typedef enum {
+    C,
+    CS,
+    D,
+    DS,
+    E,
+    F,
+    FS,
+    G,
+    GS,
+    A,
+    AS,
+    B
+} note_t;
+
+const float base_freqs[] = {
+    16.35f, 17.32f, 18.35f, 19.45f,
+    20.60f, 21.83f, 23.12f, 24.50f,
+    25.96f, 27.50f, 29.14f, 30.87f
+};
+
+int step0 = 0;
+int offset0 = 0;
+int step1 = 0;
+int offset1 = 0;
+int volume = 2400;
+
+void init_wavetable(wave_t wave);
+void set_note(int chan, note_t n, int octave);
+float note_to_freq(note_t n, int octave);
+
+void init_wavetable(wave_t wave) {
+    for(int i=0; i < N; i++)
+        wavetable[i] = (16383 * sin(2 * M_PI * i / N)) + 16384;
+}
+
+float note_to_freq(note_t n, int octave) {
+    return (base_freqs[n] * (1 << octave));
+}
+
+void set_note(int chan, note_t n, int octave) {
+    if (chan == 0) {
+        if (note_to_freq(n, octave) == 0.0) {
+            step0 = 0;
+            offset0 = 0;
+        } else
+            step0 = (note_to_freq(n, octave) * N / RATE) * (1<<16);
+    }
+    if (chan == 1) {
+        if (note_to_freq(n, octave) == 0.0) {
+            step1 = 0;
+            offset1 = 0;
+        } else
+            step1 = ((note_to_freq(n, octave)) * N / RATE) * (1<<16);
+    }
+}
