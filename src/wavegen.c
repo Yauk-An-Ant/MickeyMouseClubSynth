@@ -5,49 +5,18 @@
 #include <math.h>
 #include <stdlib.h>
 #include "pico/stdlib.h"
+#include "support.h"
 
-#define N 1000
 short int wavetable[N];
-
-#define RATE 20000
-
-typedef enum {
-    SINE,
-    TRIANGLE,
-    SAWTOOTH,
-    SQUARE
-} wave_t;
-
-typedef enum {
-    C,
-    CS,
-    D,
-    DS,
-    E,
-    F,
-    FS,
-    G,
-    GS,
-    A,
-    AS,
-    B
-} note_t;
+int step0 = 0, offset0 = 0;
+int step1 = 0, offset1 = 0;
+int volume = 2400;
 
 const float base_freqs[] = {
     16.35f, 17.32f, 18.35f, 19.45f,
     20.60f, 21.83f, 23.12f, 24.50f,
     25.96f, 27.50f, 29.14f, 30.87f
 };
-
-int step0 = 0;
-int offset0 = 0;
-int step1 = 0;
-int offset1 = 0;
-int volume = 2400;
-
-void init_wavetable(wave_t wave);
-void set_note(int chan, note_t n, int octave);
-float note_to_freq(note_t n, int octave);
 
 void init_wavetable(wave_t wave) {
     for(int i=0; i < N; i++)
