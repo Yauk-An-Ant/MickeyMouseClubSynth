@@ -19,8 +19,29 @@ const float base_freqs[] = {
 };
 
 void init_wavetable(wave_t wave) {
-    for(int i=0; i < N; i++)
-        wavetable[i] = (16383 * sin(2 * M_PI * i / N)) + 16384;
+    if(wave == SINE) {
+        for(int i=0; i < N; i++)
+            wavetable[i] = (16383 * sin(2 * M_PI * i / N)) + 16384;
+
+    } else if(wave == TRIANGLE) {
+        for(int i = 0; i < N; i++) {
+            if(i < N/2)
+                wavetable[i] = (short int)(1 + (4 * 16383 * i) / N);
+            else
+                wavetable[i] = (short int)(32767 - (4 * 16383 * (i - N/2)) / N);
+        }
+    } else if(wave == SAWTOOTH) {
+        for(int i = 0; i < N; i++) {
+            wavetable[i] = (short int)((2 * 16383 * i) / N) + 1;
+        }
+    } else if(wave == SQUARE) {
+        for(int i = 0; i < N; i++) {
+            if(i < N/2)
+                wavetable[i] = 32767;
+            else
+                wavetable[i] = 1;
+        }
+    }
 }
 
 float note_to_freq(note_t n, int octave) {

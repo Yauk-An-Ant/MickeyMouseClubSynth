@@ -57,7 +57,8 @@ int main() {
     bool decimal_entered = false;
     int decimal_pos = 0;
     int current_channel = 0;
-    uint octave = 2;
+    uint octave = 3;
+    wave_t wave = SINE;
 
     keypad_init_pins();
     keypad_init_timer();
@@ -89,8 +90,38 @@ int main() {
                 case '*': set_note(0, A, octave); break;
                 case '0': set_note(0, AS, octave); break;
                 case '#': set_note(0, B, octave); break;
-                case 'A': if(octave < 7) octave++; break;
-                case 'B': if(octave > 1) octave--; break;
+                case 'A': if(octave < 6) octave++; break;
+                case 'B': if(octave > 2) octave--; break;
+                case 'C':
+                    if(wave == SINE) {
+                        init_wavetable(TRIANGLE);
+                        wave = TRIANGLE;
+                    } else if(wave == TRIANGLE) {
+                        init_wavetable(SAWTOOTH);
+                        wave = SAWTOOTH;
+                    } else if(wave == SAWTOOTH) {
+                        init_wavetable(SQUARE);
+                        wave = SQUARE;
+                    } else if(wave == SQUARE) {
+                        init_wavetable(SINE);
+                        wave = SINE;
+                    }
+                    break;
+                case 'D':
+                    if(wave == SINE) {
+                        init_wavetable(SQUARE);
+                        wave = SQUARE;
+                    } else if(wave == TRIANGLE) {
+                        init_wavetable(SINE);
+                        wave = SINE;
+                    } else if(wave == SAWTOOTH) {
+                        init_wavetable(TRIANGLE);
+                        wave = TRIANGLE;
+                    } else if(wave == SQUARE) {
+                        init_wavetable(SAWTOOTH);
+                        wave = SAWTOOTH;
+                    }
+                    break;
             }
         }
     }
