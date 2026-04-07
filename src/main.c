@@ -8,6 +8,8 @@
 #include "support.h"
 #include "queue.h"
 
+int key_voice[12];
+
 void init_pwm_audio();
 void pwm_audio_handler();
 
@@ -50,6 +52,32 @@ void init_pwm_audio() {
     irq_set_enabled(PWM_IRQ_WRAP_0, true);
 }
 
+int key_index(char key) {
+    switch(key) {
+        case '1': return 0;  
+        case '2': return 1;  
+        case '3': return 2;  
+        case '4': return 3;  
+        case '5': return 4;  
+        case '6': return 5;  
+        case '7': return 6;  
+        case '8': return 7;  
+        case '9': return 8;  
+        case '*': return 9;  
+        case '0': return 10; 
+        case '#': return 11; 
+        default: return -1;
+    }
+}
+
+int allocate_voice() {
+    for(int i = 0; i < MAX_VOICES; i++) {
+        if(!voices[i].active)
+            return i;
+    }
+    return 0;
+}
+
 int main() {
     //code here
     char freq_buf[9] = {0};
@@ -76,20 +104,16 @@ int main() {
         uint16_t keyevent = key_pop();
 
         if(keyevent & 0x100) {
+            //On key press
             char key = keyevent & 0xFF;
+            int k = key_index(key);
+            if(k >= 0) {
+                int voice = allocate_voice();
+                key_voice[k] = voice;
+                set_note(voice, k, octave);
+            }
+
             switch(key) {
-                case '1': set_note(0, C, octave); break;
-                case '2': set_note(0, CS, octave); break;
-                case '3': set_note(0, D, octave); break;
-                case '4': set_note(0, DS, octave); break;
-                case '5': set_note(0, E, octave); break ;
-                case '6': set_note(0, F, octave); break;
-                case '7': set_note(0, FS, octave); break;
-                case '8': set_note(0, G, octave); break;
-                case '9': set_note(0, GS, octave); break;
-                case '*': set_note(0, A, octave); break;
-                case '0': set_note(0, AS, octave); break;
-                case '#': set_note(0, B, octave); break;
                 case 'A': if(octave < 6) octave++; break;
                 case 'B': if(octave > 2) octave--; break;
                 case 'C':
@@ -123,6 +147,19 @@ int main() {
                     }
                     break;
             }
+        } else {
+            //Key released
+            char key = keyevent & 0xFF;
+            int k = key_index(key);
+            if(k >= 0) {
+                int voice = key_voice[k];
+                voices[voice].active = 0;
+            }
+            
+            // if(key != 'A' && key != 'B' && key != 'C' && key != 'D') {
+            //     step0 = 0;
+            // }
+
         }
     }
     return 0;

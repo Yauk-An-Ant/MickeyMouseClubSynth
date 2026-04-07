@@ -1,5 +1,5 @@
 #define N 1000
-
+#define MAX_VOICES 12
 #define RATE 20000
 
 typedef enum {
@@ -24,10 +24,17 @@ typedef enum {
     B
 } note_t;
 
+typedef struct {
+    int step;
+    int offset;
+    int active;
+    char key;
+} voice_t;
+
+voice_t voices[MAX_VOICES];
+
 extern short int wavetable[N];
 extern const float base_freqs[];
-extern int step0, offset0;
-extern int step1, offset1;
 extern int volume;
 
 void init_wavetable(wave_t wave);
