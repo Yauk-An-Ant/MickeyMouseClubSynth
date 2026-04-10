@@ -15,16 +15,28 @@ void pwm_audio_handler();
 
 void pwm_audio_handler() {
     uint slice = 8u + (((36) >> 1u) & 3u);
+    uint32_t mix = 0;
+    int active_count = 0;
 
-    pwm_hw->intr = (1ul << slice);
-    offset0 += step0;
-    offset1 += step1;
+    for(int i = 0; i < MAX_VOICES; i++) {
+        if(voices[i].active) {
+            voices[i].offset += voices[i].step;
 
-    if(offset0 >= (N << 16))
-        offset0 -= (N << 16);
+            if(voices[i].offset >= (N << 16))
+                voices[i].offset -= (N << 16);
 
-    uint samp = wavetable[offset0 >> 16] + wavetable[offset1 >> 16];
-    samp /= 2;
+            mix += wavetable[voices[i].offset >> 16];
+            active_count++;
+        }
+    }
+
+    if(active_count > 0)
+        mix /= active_count;
+    else
+        mix = 0;
+
+    uint samp = mix;
+
     samp = samp * pwm_hw->slice[slice].top / (1ul << 16);
     hw_write_masked(
         &pwm_hw->slice[slice].cc,
@@ -50,6 +62,9 @@ void init_pwm_audio() {
     pwm_set_irq_enabled(slice, true);
     irq_set_exclusive_handler(PWM_IRQ_WRAP_0, pwm_audio_handler);
     irq_set_enabled(PWM_IRQ_WRAP_0, true);
+
+    for(int i = 0; i < 12; i++)
+        key_voice[i] = -1;
 }
 
 int key_index(char key) {
@@ -75,7 +90,7 @@ int allocate_voice() {
         if(!voices[i].active)
             return i;
     }
-    return 0;
+    return -1;
 }
 
 int main() {
@@ -93,12 +108,18 @@ int main() {
 
     init_pwm_audio(); 
 
+    for(int i = 0; i < MAX_VOICES; i++) {
+        voices[i].active = 0;
+        voices[i].step = 0;
+        voices[i].offset = 0;
+    }
+
     // set_freq(0, 440.0f); // Set initial frequency to 440 Hz (A4 note)
     // set_freq(1, 0.0f); // Turn off channel 1 initially
     // set_freq(0, 261.626f);
     // set_freq(1, 329.628f);
 
-    set_note(0, A, 4); // Set initial frequency for channel 0
+    //set_note(0, A, 4); // Set initial frequency for channel 0
 
     for(;;) {
         uint16_t keyevent = key_pop();
@@ -109,8 +130,10 @@ int main() {
             int k = key_index(key);
             if(k >= 0) {
                 int voice = allocate_voice();
-                key_voice[k] = voice;
-                set_note(voice, k, octave);
+                if(voice >= 0) {
+                    key_voice[k] = voice;
+                    set_note(voice, (note_t)k, octave);
+                }
             }
 
             switch(key) {
@@ -153,7 +176,10 @@ int main() {
             int k = key_index(key);
             if(k >= 0) {
                 int voice = key_voice[k];
-                voices[voice].active = 0;
+                if(voice >= 0 && voice < MAX_VOICES) {
+                    voices[voice].active = 0;
+                }
+                key_voice[k] = -1;
             }
             
             // if(key != 'A' && key != 'B' && key != 'C' && key != 'D') {

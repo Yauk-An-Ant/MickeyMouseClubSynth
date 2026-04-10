@@ -16,6 +16,7 @@ const float base_freqs[] = {
     25.96f, 27.50f, 29.14f, 30.87f
 };
 
+
 void init_wavetable(wave_t wave) {
     if(wave == SINE) {
         for(int i=0; i < N; i++)
