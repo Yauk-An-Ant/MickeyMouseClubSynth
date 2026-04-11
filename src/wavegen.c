@@ -8,7 +8,7 @@
 #include "support.h"
 
 short int wavetable[N];
-int volume = 2400;
+int volume = 1200;
 
 const float base_freqs[] = {
     16.35f, 17.32f, 18.35f, 19.45f,
