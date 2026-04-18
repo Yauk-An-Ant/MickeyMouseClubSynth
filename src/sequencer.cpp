@@ -1,39 +1,36 @@
 #include "sequencer.h"
-#include <unordered_map>
 
-int offset = 0;
-int step = 493.883*N / RATE * (1<<16);
-uint8_t buffer[1024]; 
-vector<Track> tracks;
-int *mpindex = 0;
-
-void record(Step curr){
-    //anant what the sigma are the inputs
-    Track curr;
-    while(1){
-        
-    }
-    tracks.push_back(curr);
+void sequencer_init() {
+    memset(steps, 0, sizeof(steps)); //always clear to not get fucky with previous samples
+    length = 0;
+    play_index = 0;
+    mode = IDLE;
 }
 
-void sample(){
-    //anant what the sigma are the inputs
-
+void set_mode(sequencer_mode_t m) {
+    if (m == PLAY && length == 0) 
+        return;  
+    if (m == RECORD) {
+        length = 0;
+        play_index = 0;
+    }
+    if (m == PLAY) {
+        play_index = 0;
+        set_note(steps[0].channel, steps[0].note, steps[0].octave);
+    }
+    mode = m;
 }
 
+void record(note_t n, uint8_t octave, uint8_t channel) {
+    if (mode != RECORD || length >= 128) 
+        return;
+    steps[length] = (Step){ n, octave, channel };
+    length++;
+}
 
-int main(int argc, char** argv){
-    //checks for bs
-
-    for(;;){
-        //when input from anant do{
-            //Track curr = new Track();
-        //buffIndex += sizeof(curr);
-
-
-
-
-    }
-
-    return 0;
+void sequencer_next() {
+    if (mode != PLAY || length == 0) 
+        return;
+    play_index = (play_index + 1) % length;
+    set_note(steps[play_index].channel, steps[play_index].note, steps[play_index].octave);
 }
