@@ -7,6 +7,7 @@
 #include "hardware/clocks.h"
 #include "support.h"
 #include "queue.h"
+#include "sequencer.c"
 
 void init_pwm_audio();
 void pwm_audio_handler();
@@ -24,6 +25,7 @@ void pwm_audio_handler() {
     uint samp = wavetable[offset0 >> 16] + wavetable[offset1 >> 16];
     samp /= 2;
     samp = samp * pwm_hw->slice[slice].top / (1ul << 16);
+    sequencer_process();
     hw_write_masked(
         &pwm_hw->slice[slice].cc,
         samp << ((36 & 1u) ? PWM_CH0_CC_B_LSB : PWM_CH0_CC_A_LSB),
@@ -62,6 +64,7 @@ int main() {
 
     keypad_init_pins();
     keypad_init_timer();
+    sequencer_init();
 
     init_pwm_audio(); 
 
@@ -121,6 +124,25 @@ int main() {
                         init_wavetable(SAWTOOTH);
                         wave = SAWTOOTH;
                     }
+                    break;
+            }
+        }
+        else {
+            char key = keyevent & 0xFF;
+            switch (key) {
+                case 'A':
+                    if (mode == RECORD)
+                        sequencer_set_mode(IDLE);
+                    else
+                        sequencer_set_mode(RECORD);
+                    break;
+                case 'B':
+                    if (mode == PLAY)
+                        sequencer_set_mode(IDLE);
+                    else
+                        sequencer_set_mode(PLAY);
+                    break;
+                default:
                     break;
             }
         }
