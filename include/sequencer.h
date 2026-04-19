@@ -1,6 +1,10 @@
 #include <stdint.h>
 #include "support.h"
-static int tick_count = 0;
+Step steps[128];
+int length = 0;
+int play_index = 0;
+sequencer_mode_t mode = IDLE;
+int tick_count = 0; 
 
 typedef struct {
     note_t note;

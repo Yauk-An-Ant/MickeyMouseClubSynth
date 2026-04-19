@@ -1,10 +1,5 @@
 #include "sequencer.h"
 
-static Step steps[128];
-static int length = 0;
-static int play_index = 0;
-static sequencer_mode_t mode = IDLE;
-
 void sequencer_init() {
   memset(steps, 0, sizeof(steps)); // always clear to not get fucky with previous samples
   length = 0;
