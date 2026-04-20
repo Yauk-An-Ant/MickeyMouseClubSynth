@@ -2,29 +2,70 @@
 
 void pwm_audio_handler() {
     uint slice = 8u + (((36) >> 1u) & 3u);
-    uint32_t mix = 0;
+    int32_t mix = 0;
     int active_count = 0;
 
     pwm_hw->intr = 1ul << slice;
 
+    
     for(int i = 0; i < MAX_VOICES; i++) {
-        if(voices[i].active) {
+        if(voices[i].active && voices[i].envelope_state != IDLE) {
             voices[i].offset += voices[i].step;
 
             if(voices[i].offset >= (N << 16))
                 voices[i].offset -= (N << 16);
 
-            mix += wavetable[voices[i].offset >> 16];
+            float env = voices[i].envelope_level;
+
+            switch(voices[i].envelope_state) {
+                case ATTACK:
+                    env += (1.0f - env) * attack_inc;
+                    if(env >= 0.999f) {
+                        env = 1.0f;
+                        voices[i].envelope_state = DECAY;
+                    }
+                    break;
+                case DECAY:
+                    env *= decay_time * (sustain_level - env);
+                    if((env - sustain_level) < 0.001f || (env - sustain_level) > -0.001f) {
+                        env = sustain_level;
+                        voices[i].envelope_state = SUSTAIN;
+                    }
+                    break;
+                case SUSTAIN:
+                    break;
+                case RELEASE:
+                    env *= release_time * (0.0f - env);
+                    if(env <= 0.01f) {
+                        env = 0.0f;
+                        voices[i].envelope_state = IDLE;
+                        voices[i].active = 0;   // NOW we turn it off
+                    }
+                    break;
+                case IDLE:
+                default:
+                    break;
+            }
+
+            if(env < 0.0f) env = 0.0f;
+            if(env > 1.0f) env = 1.0f;
+
+            static float env_smoothed = 0.0f;
+            env_smoothed += (env - env_smoothed) * 0.05f;
+
+            voices[i].envelope_level = env;
+            int32_t sample = wavetable[voices[i].offset >> 16] - 16384;
+            sample = (uint32_t)(sample * env_smoothed);
+            sample += 16384;
+            mix += sample >> 3;
             active_count++;
         }
     }
 
-    if(active_count > 0)
-        mix /= active_count;
-    else
-        mix = 0;
+    if(mix > 16383) mix = 16383;
+    if(mix < -16384) mix = -16384;
 
-    uint samp = mix;
+    uint32_t samp = (uint32_t)(mix + 16384);
 
     samp = samp * pwm_hw->slice[slice].top / (1ul << 16);
     hw_write_masked(

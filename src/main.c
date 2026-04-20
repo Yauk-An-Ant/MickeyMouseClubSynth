@@ -23,11 +23,14 @@ int main() {
     keypad_init_timer();
 
     init_pwm_audio();
+    init_asdr(0.1, 0.1, 1.0, 0.2);
 
     for(int i = 0; i < MAX_VOICES; i++) {
         voices[i].active = 0;
         voices[i].step = 0;
         voices[i].offset = 0;
+        voices[i].envelope_state = IDLE;
+        voices[i].envelope_level = 0.0f;
     }
 
     // set_freq(0, 440.0f); // Set initial frequency to 440 Hz (A4 note)
@@ -52,6 +55,9 @@ int main() {
                 if(voice >= 0) {
                     key_voice[k] = voice;
                     set_note(voice, (note_t)k, octave);
+
+                    voices[voice].envelope_state = ATTACK;
+                    voices[voice].envelope_level = 0.0f;
                 }
             }
 
@@ -104,7 +110,7 @@ int main() {
             if(k >= 0) {
                 int voice = key_voice[k];
                 if(voice >= 0 && voice < MAX_VOICES) {
-                    voices[voice].active = 0;
+                    voices[voice].envelope_state = RELEASE;
                 }
                 key_voice[k] = -1;
             }
