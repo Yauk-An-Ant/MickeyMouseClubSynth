@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "support.h"
 #include <string.h>
+#include <stdbool.h>
 Step steps[128];
 uint8_t length = 0;
 uint8_t play_index = 0;
