@@ -12,7 +12,7 @@ void sequencer_set_mode(sequencer_mode_t m) {
     if (m == PLAY && length == 0)
         return;
     if (m == RECORD) {
-        stop_current_step_voice();
+        //stop_current_step_voice();
         length = 0;
         play_index = 0;
         tick_count = 0;
@@ -23,7 +23,7 @@ void sequencer_set_mode(sequencer_mode_t m) {
         set_note(steps[0].channel, steps[0].note, steps[0].octave);
     }
     if (m == IDLE) {
-        stop_current_step_voice();
+       // stop_current_step_voice();
         tick_count = 0;
     }   
   mode = m;
