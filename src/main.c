@@ -21,9 +21,14 @@ int main() {
 
     keypad_init_pins();
     keypad_init_timer();
-
     init_pwm_audio();
-    init_asdr(0.1, 0.1, 1.0, 0.2);
+
+    //initialize asdr and effects
+    init_asdr(0.01, 0.1, 1.0f, 0.2);
+    init_distortion(true, 0.3f, 0.8f);
+    init_eq(0.5f, 0.5f, 0.5f);
+    init_flanger(false, 0.6, 0.003, 0.4, 0.5);
+    init_delay(false, 0.1, 0.4, 1.0);
 
     for(int i = 0; i < MAX_VOICES; i++) {
         voices[i].active = 0;

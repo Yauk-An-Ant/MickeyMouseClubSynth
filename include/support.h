@@ -1,6 +1,8 @@
 #define N 2048
 #define MAX_VOICES 12
 #define RATE 20000
+#define FLANGER_BUF 1024
+#define DELAY_BUF_SIZE 12000
 
 typedef enum {
     SINE,
@@ -58,6 +60,7 @@ float decay_dec;
 float release_dec;
 
 //distortion settings
+bool distortion_enabled;
 float distortion_volume;
 float distortion;
 
@@ -66,6 +69,18 @@ float lows;
 float mids;
 float highs;
 
+//flanger settings
+bool flanger_enabled;
+float flanger_depth;
+float flanger_rate;
+float flanger_feedback;
+float flanger_mix;
+
+//delay settings
+bool delay_enabled;
+float delay_time;
+float delay_mix;
+float delay_feedback;
 
 void init_asdr(float attack, float decay, float sustain, float release);
 
@@ -76,3 +91,15 @@ extern int volume;
 void init_wavetable(wave_t wave);
 void set_note(int chan, note_t n, int octave);
 float note_to_freq(note_t n, int octave);
+
+void init_distortion(bool enable, float dist, float dist_volume);
+float apply_distortion(float x);
+
+void init_eq(float l, float m, float h);
+float apply_eq(float x);
+
+void init_flanger(bool enabled, float depth, float rate, float feedback, float mix);
+float apply_flanger(float x);
+
+void init_delay(bool enabled, float time, float mix, float feedback);
+float apply_delay(float x);
