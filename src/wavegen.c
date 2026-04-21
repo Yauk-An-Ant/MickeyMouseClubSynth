@@ -7,10 +7,25 @@
 #include "pico/stdlib.h"
 #include "support.h"
 
+//============================================================================
+// Storage owned by this TU.  The shared synth globals (attack_time, volume,
+// distortion, flanger_*, delay_*, etc.) live in globals.c — don't redefine
+// them here, you'll get "multiple definition" linker errors.
+//============================================================================
 short int wavetable[N];
-//here its from 0 to 1800
-int volume = 1200;
-int distortion_on = 0;
+
+// EQ filter state (used only inside apply_eq).
+float eq_low_state  = 0.0f;
+float eq_high_state = 0.0f;
+
+// Flanger ring buffer state.
+float flanger_buf[FLANGER_BUF];
+int   flanger_idx = 0;
+float flanger_lfo = 0.0f;
+
+// Delay ring buffer state.
+float delay_buf[DELAY_BUF_SIZE];
+int   delay_write = 0;
 
 const float base_freqs[] = {
     16.35f, 17.32f, 18.35f, 19.45f,
@@ -72,4 +87,132 @@ void init_asdr(float attack, float decay, float sustain, float release) {
     attack_inc  = 1.0f / (attack_time * RATE);
     decay_dec   = (1.0f - sustain_level) / (decay_time * RATE);
     release_dec = 1.0f / (release_time * RATE);
+}
+
+void init_distortion(bool enable, float dist, float dist_volume) {
+    distortion_enabled = enable;
+    distortion = dist;
+    distortion_volume = dist_volume;
+}
+
+float apply_distortion(float x) {
+    //bypass
+    if(distortion <= 0.001f) {
+        return x;
+    }
+
+    float drive = 1.0f + (distortion * distortion) * 19.0f;
+
+    float y = x * drive;
+
+    // soft clip
+    if (y > 1.0f) y = 1.0f;
+    else if (y < -1.0f) y = -1.0f;
+
+    // prevent signal collapse
+    return y * (0.5f + 0.5f * distortion_volume);
+}
+
+void init_eq(float l, float m, float h) {
+    lows = l;
+    mids = m;
+    highs = h;
+}
+
+float apply_eq(float x) {
+    float low_gain  = 2.0f * lows;
+    float mid_gain  = 2.0f * mids;
+    float high_gain = 2.0f * highs;
+
+    float low_alpha = 0.02f;
+    float high_alpha = 0.02f;
+
+    //lowpass
+    eq_low_state += low_alpha * (x - eq_low_state);
+    float low = eq_low_state;
+
+    //highpass
+    eq_high_state += high_alpha * (x - eq_high_state);
+    float high = x - eq_high_state;
+
+    // MID = safe remainder (NO cancellation chain)
+    float mid = x - low - high;
+
+    // recombine WITHOUT normalization (important)
+    float y = (low * low_gain) +
+              (mid * mid_gain) +
+              (high * high_gain);
+
+    return y;
+}
+
+void init_flanger(bool enable, float depth, float rate, float feedback, float mix) {
+    flanger_enabled = enable;
+    flanger_depth = depth;
+    flanger_rate = rate;
+    flanger_feedback = feedback;
+    flanger_mix = mix;
+}
+
+float apply_flanger(float x) {
+
+    // LFO (triangle-ish using sine is fine)
+    flanger_lfo += flanger_rate;
+    if (flanger_lfo > 1.0f) flanger_lfo -= 1.0f;
+
+    float lfo = 0.5f + 0.5f * sinf(2.0f * 3.14159f * flanger_lfo);
+
+    // delay time in samples (2 to ~20 samples = classic flanger)
+    float delay = 2.0f + lfo * (20.0f * flanger_depth);
+
+    int read_idx = flanger_idx - (int)delay;
+    if (read_idx < 0) read_idx += FLANGER_BUF;
+
+    float delayed = flanger_buf[read_idx];
+
+    // feedback write
+    flanger_buf[flanger_idx] = x + delayed * flanger_feedback;
+
+    // advance buffer
+    flanger_idx = (flanger_idx + 1) % FLANGER_BUF;
+
+    // mix dry/wet
+    return (x * (1.0f - flanger_mix)) + (delayed * flanger_mix);
+}
+
+void init_delay(bool enabled, float time, float mix, float feedback) {
+    delay_enabled = enabled;
+    delay_time = time;
+    delay_mix = mix;
+    delay_feedback = feedback;
+}
+
+float apply_delay(float x) {
+
+    // map 0..1 → 100..12000 samples (log-like feel)
+    int delay_time_s = 100 + (int)(delay_time * delay_time * 11900.0f);
+
+    if (delay_time_s >= DELAY_BUF_SIZE)
+        delay_time_s = DELAY_BUF_SIZE - 1;
+
+    int read_index = delay_write - delay_time_s;
+    if (read_index < 0)
+        read_index += DELAY_BUF_SIZE;
+
+    float delayed = delay_buf[read_index];
+
+    // feedback (0..1 mapped to safe range)
+    float fb = delay_feedback * 0.7f;  // prevent runaway
+
+    delay_buf[delay_write] = x + delayed * fb;
+
+    delay_write++;
+    if (delay_write >= DELAY_BUF_SIZE)
+        delay_write = 0;
+
+    // mix
+    float wet = delay_mix;
+    float dry = 1.0f - wet;
+
+    return x * dry + delayed * wet;
 }

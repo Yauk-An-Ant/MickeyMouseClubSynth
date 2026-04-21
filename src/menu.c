@@ -65,51 +65,11 @@ extern void init_wavetable(wave_t w);
 #endif
 
 // ============================================================================
-// Project-wide audio globals.
-//
-// These are defined in your synth globals header.  If you'd rather include
-// that header directly, delete this block and add:
-//     #include "synth_globals.h"   // or whatever it's called
-// above.  Re-declaring an extern is harmless as long as types match.
+// Project-wide audio globals are all declared in support.h (included above)
+// and defined exactly once in globals.c.  No re-externs needed here.
+// NOTE: the effect-enable flags in this codebase are `bool`:
+//       distortion_enabled, flanger_enabled, delay_enabled.
 // ============================================================================
-extern float attack_time;
-extern float decay_time;
-extern float sustain_level;
-extern float release_time;
-extern float attack_inc;       // derived by audio layer from attack_time
-extern float decay_dec;        // derived by audio layer from decay_time
-extern float release_dec;      // derived by audio layer from release_time
-
-extern float distortion;
-extern float distortion_volume;
-// ON/OFF toggle for the distortion stage.  Define this as `int distortion_on`
-// in your project globals (0 = bypass, 1 = active).
-extern int   distortion_on;
-
-// Flanger parameters.  Define in project globals as floats in [0,1], plus
-// an int `flanger_on` (0 = bypass, 1 = active).
-extern int   flanger_on;
-extern float flanger_depth;
-extern float flanger_rate;
-extern float flanger_feedback;
-extern float flanger_mix;
-
-// Delay parameters.  Same convention.
-extern int   delay_on;
-extern float delay_time;
-extern float delay_mix;
-extern float delay_feedback;
-
-extern float lows;
-extern float mids;
-extern float highs;
-
-extern int volume;             // 0..1800 (already defined in wavegen.c)
-
-// NOTE: If your audio engine derives attack_inc / decay_dec / release_dec
-// from the *_time values, do that derivation in the audio layer whenever a
-// note starts (or in an IRQ that runs often enough).  The menu only writes
-// the *_time values.
 
 // ============================================================================
 // Colour palette (RGB565)
@@ -186,19 +146,19 @@ static const row_desc_t wave_rows[] = {
 };
 // Each effect page starts with its ON/OFF toggle so it's easy to thumb to.
 static const row_desc_t dist_rows[] = {
-    { "Power",   VT_BOOL,    &distortion_on     },
-    { "Drive",   VT_FLOAT01, &distortion        },
-    { "Volume",  VT_FLOAT01, &distortion_volume },
+    { "Power",   VT_BOOL,    &distortion_enabled },
+    { "Drive",   VT_FLOAT01, &distortion         },
+    { "Volume",  VT_FLOAT01, &distortion_volume  },
 };
 static const row_desc_t flanger_rows[] = {
-    { "Power",    VT_BOOL,    &flanger_on       },
+    { "Power",    VT_BOOL,    &flanger_enabled  },
     { "Depth",    VT_FLOAT01, &flanger_depth    },
     { "Rate",     VT_FLOAT01, &flanger_rate     },
     { "Feedback", VT_FLOAT01, &flanger_feedback },
     { "Mix",      VT_FLOAT01, &flanger_mix      },
 };
 static const row_desc_t delay_rows[] = {
-    { "Power",    VT_BOOL,    &delay_on       },
+    { "Power",    VT_BOOL,    &delay_enabled  },
     { "Time",     VT_FLOAT01, &delay_time     },
     { "Mix",      VT_FLOAT01, &delay_mix      },
     { "Feedback", VT_FLOAT01, &delay_feedback },
@@ -262,7 +222,7 @@ static val_u row_get(const row_desc_t *r) {
         case VT_FLOAT01: v.f = *(float *)r->ptr; break;
         case VT_INT_VOL: v.i = *(int   *)r->ptr; break;
         case VT_WAVE:    v.i = *(int   *)r->ptr; break;
-        case VT_BOOL:    v.i = *(int   *)r->ptr ? 1 : 0; break;
+        case VT_BOOL:    v.i = *(bool  *)r->ptr ? 1 : 0; break;
     }
     return v;
 }
@@ -515,8 +475,8 @@ static void edit_value_step(const row_desc_t *r, int dir) {
         }
         case VT_BOOL: {
             // Toggle regardless of direction — +/- both flip.
-            int *p = (int *)r->ptr;
-            *p = *p ? 0 : 1;
+            bool *p = (bool *)r->ptr;
+            *p = !*p;
             break;
         }
     }
@@ -530,32 +490,34 @@ void menu_init(void) {
     scr_h = (int)lcddev.height;
     if (scr_w <= 0 || scr_h <= 0) { scr_w = 240; scr_h = 320; }
 
-    // Sensible defaults.  Skip anything you'd rather initialise yourself —
-    // the menu will pick up whatever value is already in the global.
+    // Sensible defaults.  These match wavegen.c/globals.c's initialisers
+    // closely, but re-applying them here means menu_init() always starts
+    // from a known state.  Delete any line you'd rather preserve across
+    // reboots (once you have NVM) or handle from the audio layer.
     attack_time       = 0.20f;
     decay_time        = 0.30f;
     sustain_level     = 0.70f;
     release_time      = 0.40f;
 
-    distortion        = 0.00f;
-    distortion_volume = 0.80f;
-    distortion_on     = 0;        // bypassed
+    distortion         = 0.00f;
+    distortion_volume  = 0.80f;
+    distortion_enabled = false;   // bypassed
 
-    flanger_on        = 0;        // bypassed
-    flanger_depth     = 0.50f;
-    flanger_rate      = 0.25f;
-    flanger_feedback  = 0.30f;
-    flanger_mix       = 0.50f;
+    flanger_enabled  = false;     // bypassed
+    flanger_depth    = 0.50f;
+    flanger_rate     = 0.25f;
+    flanger_feedback = 0.30f;
+    flanger_mix      = 0.50f;
 
-    delay_on          = 0;        // bypassed
-    delay_time        = 0.30f;
-    delay_mix         = 0.50f;
-    delay_feedback    = 0.40f;
+    delay_enabled  = false;       // bypassed
+    delay_time     = 0.30f;
+    delay_mix      = 0.50f;
+    delay_feedback = 0.40f;
 
     lows              = 0.50f;
     mids              = 0.50f;
     highs             = 0.50f;
-    volume            = 1200;     // was the wavegen.c default
+    volume            = 1200;     // wavegen.c's original default
     menu_wave_idx     = 0;        // SINE
 
     // Ensure the wavetable matches our idea of the current wave.
