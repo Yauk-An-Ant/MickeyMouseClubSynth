@@ -8,15 +8,14 @@
 #include "support.h"
 
 short int wavetable[N];
-int step0 = 0, offset0 = 0;
-int step1 = 0, offset1 = 0;
-int volume = 2400;
+int volume = 1200;
 
 const float base_freqs[] = {
     16.35f, 17.32f, 18.35f, 19.45f,
     20.60f, 21.83f, 23.12f, 24.50f,
     25.96f, 27.50f, 29.14f, 30.87f
 };
+
 
 void init_wavetable(wave_t wave) {
     if(wave == SINE) {
@@ -48,19 +47,16 @@ float note_to_freq(note_t n, int octave) {
     return (base_freqs[n] * (1 << octave));
 }
 
-void set_note(int chan, note_t n, int octave) {
-    if (chan == 0) {
-        if (note_to_freq(n, octave) == 0.0) {
-            step0 = 0;
-            offset0 = 0;
-        } else
-            step0 = (note_to_freq(n, octave) * N / RATE) * (1<<16);
-    }
-    if (chan == 1) {
-        if (note_to_freq(n, octave) == 0.0) {
-            step1 = 0;
-            offset1 = 0;
-        } else
-            step1 = ((note_to_freq(n, octave)) * N / RATE) * (1<<16);
+void set_note(int voice, note_t n, int octave) {
+
+    float freq = note_to_freq(n, octave);
+
+    if(freq == 0.0f) {
+        voices[voice].step = 0;
+        voices[voice].offset = 0;
+        voices[voice].active = 0;
+    } else {
+        voices[voice].step = (int)((freq * N / RATE) * (1u << 16));
+        voices[voice].active = 1;
     }
 }
