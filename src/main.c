@@ -1,120 +1,188 @@
+//============================================================================
+// main.c  --  Interactive TFT menu test (no audio).
+//
+// Brings up LCD + pots + keypad, then hands control to the menu.  Audio is
+// not initialised in this test — we're focused on display + inputs.
+//
+// Controls
+//   C   — browse: next menu   | edit: next row (Dist/EQ) | adj: +1 step
+//   8   — browse: prev menu   | edit: prev row (Dist/EQ) | adj: -1 step
+//   9   — go deeper  (enter edit, or drill into a Dist/EQ row)
+//   #   — back one level (universal cancel — always gets you out)
+//   A   — octave up           (kept for consistency with the full build)
+//   B   — octave down
+//
+// Base menu
+//   Has no EDIT mode.  Pot values are sampled only when you switch TO Base
+//   or when you press '9' while on Base (manual refresh).  No background
+//   polling, no timer IRQ — values hold still between refreshes.
+//
+// Build
+//   USE_TFT_MENU must be visible to every TU.  In platformio.ini:
+//     build_flags = -DUSE_TFT_MENU
+//============================================================================
 #include <stdio.h>
-#include <math.h>
-#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdbool.h>
+
 #include "pico/stdlib.h"
-#include "hardware/uart.h"
-#include "hardware/pwm.h"
-#include "hardware/clocks.h"
+#include "hardware/spi.h"
+
+#include "lcd.h"
+#include "lcd_dma.h"
+#include "menu.h"
+#include "pots.h"
 #include "queue.h"
-#include "audio.h"
 
-int main() {
-    //code here
+// ---- LCD SPI pin map (must match lcd.c's baked-in pin numbers) -------------
+#define PIN_SDI    27
+#define PIN_CS     29
+#define PIN_SCK    30
+#define PIN_DC     32
+#define PIN_nRESET 31
+
+extern menu_t current_menu;
+
+// Synth globals — we only read them for the status dump.
+extern float attack_time, decay_time, sustain_level, release_time;
+extern float distortion, distortion_volume;
+extern int   distortion_on;
+
+extern int   flanger_on;
+extern float flanger_depth, flanger_rate, flanger_feedback, flanger_mix;
+
+extern int   delay_on;
+extern float delay_time, delay_mix, delay_feedback;
+
+extern float lows, mids, highs;
+extern int   volume;
+
+// ============================================================================
+// Bring-up helpers
+// ============================================================================
+static void init_spi_lcd(void) {
+    gpio_set_function(PIN_CS,     GPIO_FUNC_SIO);
+    gpio_set_function(PIN_DC,     GPIO_FUNC_SIO);
+    gpio_set_function(PIN_nRESET, GPIO_FUNC_SIO);
+
+    gpio_set_dir(PIN_CS,     GPIO_OUT);
+    gpio_set_dir(PIN_DC,     GPIO_OUT);
+    gpio_set_dir(PIN_nRESET, GPIO_OUT);
+
+    gpio_put(PIN_CS,     1);
+    gpio_put(PIN_DC,     0);
+    gpio_put(PIN_nRESET, 1);
+
+    gpio_set_function(PIN_SCK, GPIO_FUNC_SPI);
+    gpio_set_function(PIN_SDI, GPIO_FUNC_SPI);
+    spi_init(spi1, 100 * 1000 * 1000);
+    spi_set_format(spi1, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+}
+
+static const char *menu_name(menu_t m) {
+    switch (m) {
+        case MENU_BASE:       return "Base";
+        case MENU_WAVEFORM:   return "Waveform";
+        case MENU_DISTORTION: return "Distortion";
+        case MENU_FLANGER:    return "Flanger";
+        case MENU_DELAY:      return "Delay";
+        case MENU_EQUALIZER:  return "Equalizer";
+        default:              return "?";
+    }
+}
+
+// Dump every menu value over USB serial.  Useful for verifying the menu is
+// actually writing the synth globals — call it whenever a menu key fires.
+static void print_state(void) {
+    printf("  [%s]  A=%.2f D=%.2f S=%.2f R=%.2f  vol=%d\n"
+           "         dist=%s drive=%.2f dvol=%.2f\n"
+           "         flg=%s  dep=%.2f rate=%.2f fb=%.2f mix=%.2f\n"
+           "         dly=%s  time=%.2f mix=%.2f fb=%.2f\n"
+           "         lo=%.2f mid=%.2f hi=%.2f\n",
+           menu_name(current_menu),
+           attack_time, decay_time, sustain_level, release_time, volume,
+           distortion_on ? "ON" : "OFF",
+           distortion, distortion_volume,
+           flanger_on ? "ON" : "OFF",
+           flanger_depth, flanger_rate, flanger_feedback, flanger_mix,
+           delay_on ? "ON" : "OFF",
+           delay_time, delay_mix, delay_feedback,
+           lows, mids, highs);
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+int main(void) {
     stdio_init_all();
-    char freq_buf[9] = {0};
-    int pos = 0;
-    bool decimal_entered = false;
-    int decimal_pos = 0;
-    int current_channel = 0;
-    uint octave = 3;
-    wave_t wave = SINE;
+    sleep_ms(500);   // give USB stdio a moment to enumerate
+    printf("\n\n============================================\n");
+    printf("  TFT Menu Interactive Test (no audio)\n");
+    printf("============================================\n");
+    printf("Keys:  C=next   8=prev   9=deeper/refresh   #=back\n");
+    printf("       A=oct+  B=oct-\n");
+    printf("Base menu: press 9 to sample the pots (GPIO 41..45).\n\n");
 
+    // ---- LCD first so menu_init() has a live screen.
+    init_spi_lcd();
+    LCD_Setup();
+    LCD_DMA_Init();
+
+    // ---- Pots: turn on the ADC and wire up the pin muxes.  No DMA / IRQ
+    //      yet — sampling is driven by the menu's 1 ms Base timer.
+    pots_init();
+
+    // ---- Keypad: pins + timer ISRs (owns timer alarms 0 and 1).
     keypad_init_pins();
     keypad_init_timer();
 
-    init_pwm_audio();
+    // ---- Menu: paints initial Base page, starts the 1ms pot timer IRQ
+    //            (alarm 2) because Base is the opening page.
+    menu_init();
+    print_state();
 
-    for(int i = 0; i < MAX_VOICES; i++) {
-        voices[i].active = 0;
-        voices[i].step = 0;
-        voices[i].offset = 0;
-    }
+    uint octave = 3;
 
-    // set_freq(0, 440.0f); // Set initial frequency to 440 Hz (A4 note)
-    // set_freq(1, 0.0f); // Turn off channel 1 initially
-    // set_freq(0, 261.626f);
-    // set_freq(1, 329.628f);
-
-    //set_note(0, A, 4); // Set initial frequency for channel 0
-
-    //Set Parameters
-    //base_volume = 0.5f;
-
-    for(;;) {
+    // ------------------------------------------------------------ main loop
+    for (;;) {
         uint16_t keyevent = key_pop();
-        
-        if(keyevent & 0x100) {
-            //On key press
-            char key = keyevent & 0xFF;
-            int k = key_index(key);
-            if(k >= 0) {
-                int voice = allocate_voice();
-                if(voice >= 0) {
-                    key_voice[k] = voice;
-                    set_note(voice, (note_t)k, octave);
+        if (keyevent) {
+            bool pressed = (keyevent & 0x100) != 0;
+            char key     = (char)(keyevent & 0xFF);
+
+            // -------- Menu-reserved keys (presses only).
+            if (key == '8' || key == '9' || key == 'C' || key == '#') {
+                if (pressed) {
+                    printf("KEY '%c' (press)\n", key);
+                    menu_handle_key(key);
+                    print_state();
                 }
             }
-
-            switch(key) {
-                case 'A': if(octave < 6) octave++; printf("octave: %d\n", octave); break;
-                case 'B': if(octave > 2) octave--; printf("octave: %d\n", octave); break;
-                case 'C':
-                    if(wave == SINE) {
-                        printf("Triangle Wave\n");
-                        init_wavetable(TRIANGLE);
-                        wave = TRIANGLE;
-                    } else if(wave == TRIANGLE) {
-                        printf("Sawtooth Wave\n");
-                        init_wavetable(SAWTOOTH);
-                        wave = SAWTOOTH;
-                    } else if(wave == SAWTOOTH) {
-                        printf("Square Wave\n");
-                        init_wavetable(SQUARE);
-                        wave = SQUARE;
-                    } else if(wave == SQUARE) {
-                        printf("Sine Wave\n");
-                        init_wavetable(SINE);
-                        wave = SINE;
-                    }
-                    break;
-                case 'D':
-                    if(wave == SINE) {
-                        printf("Square Wave\n");
-                        init_wavetable(SQUARE);
-                        wave = SQUARE;
-                    } else if(wave == TRIANGLE) {
-                        printf("Sine Wave\n");
-                        init_wavetable(SINE);
-                        wave = SINE;
-                    } else if(wave == SAWTOOTH) {
-                        printf("Triangle Wave\n");
-                        init_wavetable(TRIANGLE);
-                        wave = TRIANGLE;
-                    } else if(wave == SQUARE) {
-                        printf("Sawtooth Wave\n");
-                        init_wavetable(SAWTOOTH);
-                        wave = SAWTOOTH;
-                    }
-                    break;
-            }
-        } else {
-            //Key released
-            char key = keyevent & 0xFF;
-            int k = key_index(key);
-            if(k >= 0) {
-                int voice = key_voice[k];
-                if(voice >= 0 && voice < MAX_VOICES) {
-                    voices[voice].active = 0;
+            // -------- Octave controls (kept so the key roles match the
+            //          production build even though we're not making sound).
+            else if (key == 'A') {
+                if (pressed && octave < 6) {
+                    octave++;
+                    printf("KEY 'A' → octave up  = %u\n", octave);
                 }
-                key_voice[k] = -1;
+            } else if (key == 'B') {
+                if (pressed && octave > 2) {
+                    octave--;
+                    printf("KEY 'B' → octave dn  = %u\n", octave);
+                }
             }
-            
-            // if(key != 'A' && key != 'B' && key != 'C' && key != 'D') {
-            //     step0 = 0;
-            // }
-
+            // -------- Everything else: just log (no audio in this test).
+            else {
+                if (pressed) printf("KEY '%c' (press, ignored)\n", key);
+            }
         }
+
+        // Refresh LCD (diff-based; cheap when nothing moved).  The Base
+        // pot IRQ writes to the float globals directly, and menu_tick
+        // notices the change and redraws the affected rows.
+        menu_tick();
     }
+
     return 0;
 }
-

@@ -8,7 +8,9 @@
 #include "support.h"
 
 short int wavetable[N];
+//here its from 0 to 1800
 int volume = 1200;
+int distortion_on = 0;
 
 const float base_freqs[] = {
     16.35f, 17.32f, 18.35f, 19.45f,
@@ -53,10 +55,21 @@ void set_note(int voice, note_t n, int octave) {
 
     if(freq == 0.0f) {
         voices[voice].step = 0;
-        voices[voice].offset = 0;
+        //voices[voice].offset = 0;
         voices[voice].active = 0;
     } else {
         voices[voice].step = (int)((freq * N / RATE) * (1u << 16));
         voices[voice].active = 1;
     }
+}
+
+void init_asdr(float attack, float decay, float sustain, float release) {
+    attack_time   = attack;
+    decay_time    = decay;
+    sustain_level = sustain;
+    release_time  = release;
+
+    attack_inc  = 1.0f / (attack_time * RATE);
+    decay_dec   = (1.0f - sustain_level) / (decay_time * RATE);
+    release_dec = 1.0f / (release_time * RATE);
 }
