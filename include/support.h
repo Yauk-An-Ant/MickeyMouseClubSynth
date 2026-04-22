@@ -1,3 +1,8 @@
+#ifndef SUPPORT_H
+#define SUPPORT_H
+
+#include <stdbool.h>
+
 #define N 2048
 #define MAX_VOICES 12
 #define RATE 20000
@@ -103,3 +108,5 @@ float apply_flanger(float x);
 
 void init_delay(bool enabled, float time, float mix, float feedback);
 float apply_delay(float x);
+
+#endif

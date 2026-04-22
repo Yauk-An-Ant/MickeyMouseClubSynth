@@ -2,9 +2,9 @@
 #include "audio.h"
 #include <string.h>
 #include <stdbool.h>
-uint8_t length = 0;
-uint8_t play_index = 0;
-uint8_t tick_count = 0; 
+extern uint8_t length;
+extern uint8_t play_index;
+extern uint8_t tick_count; 
 
 typedef struct {
     note_t note;
@@ -12,7 +12,7 @@ typedef struct {
     uint8_t channel;
     bool tie;
 } Step;
-Step steps[128];
+extern Step steps[128];
 
 
 typedef enum { 
@@ -21,7 +21,7 @@ typedef enum {
   PLAY 
 } sequencer_mode_t;
 
-sequencer_mode_t mode = IDLE;
+extern sequencer_mode_t mode;
 
 
 void sequencer_init();
