@@ -5,7 +5,7 @@ void sequencer_init() {
     length = 0;
     play_index = 0;
     tick_count = 0;
-    mode = IDLE;
+    mode = SEQ_IDLE;
 }
 
 void sequencer_set_mode(sequencer_mode_t m) {
@@ -22,7 +22,7 @@ void sequencer_set_mode(sequencer_mode_t m) {
         tick_count = 0;
         set_note(steps[0].channel, steps[0].note, steps[0].octave);
     }
-    if (m == IDLE) {
+    if (m == SEQ_IDLE) {
        // stop_current_step_voice();
         tick_count = 0;
     }   

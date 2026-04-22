@@ -6,7 +6,6 @@
 #include "hardware/pwm.h"
 #include "hardware/clocks.h"
 #include "queue.h"
-#include "audio.h"
 #include "sequencer.h"
 
 int main() {
@@ -99,13 +98,13 @@ int main() {
                     }
                 case 'A':
                     if (mode == RECORD)
-                        sequencer_set_mode(IDLE);
+                        sequencer_set_mode(SEQ_IDLE);
                     else
                         sequencer_set_mode(RECORD);
                     break;
                 case 'B':
                     if (mode == PLAY)
-                        sequencer_set_mode(IDLE);
+                        sequencer_set_mode(SEQ_IDLE);
                     else
                         sequencer_set_mode(PLAY);
                     break;

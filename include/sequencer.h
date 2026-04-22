@@ -1,11 +1,9 @@
 #include <stdint.h>
-#include "support.h"
+#include "audio.h"
 #include <string.h>
 #include <stdbool.h>
-Step steps[128];
 uint8_t length = 0;
 uint8_t play_index = 0;
-sequencer_mode_t mode = IDLE;
 uint8_t tick_count = 0; 
 
 typedef struct {
@@ -14,12 +12,17 @@ typedef struct {
     uint8_t channel;
     bool tie;
 } Step;
+Step steps[128];
+
 
 typedef enum { 
-  IDLE, 
+  SEQ_IDLE, 
   RECORD, 
   PLAY 
 } sequencer_mode_t;
+
+sequencer_mode_t mode = IDLE;
+
 
 void sequencer_init();
 void sequencer_set_mode(sequencer_mode_t);
