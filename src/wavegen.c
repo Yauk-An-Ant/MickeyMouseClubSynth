@@ -57,7 +57,7 @@ float note_to_freq(note_t n, int octave) {
     return (base_freqs[n] * (1 << octave));
 }
 
-void set_note(int voice, note_t n, int octave, bool tie) {
+void set_note(int voice, note_t n, int octave) {
 
     float freq = note_to_freq(n, octave);
 
@@ -70,9 +70,6 @@ void set_note(int voice, note_t n, int octave, bool tie) {
         voices[voice].active = 1;
     }
    // if(voices[i].envelope_state == ATTACK)
-
-
-
 }
 
 void init_asdr(float attack, float decay, float sustain, float release) {

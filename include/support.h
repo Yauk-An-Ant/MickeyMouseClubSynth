@@ -89,7 +89,7 @@ extern const float base_freqs[];
 extern int volume;
 
 void init_wavetable(wave_t wave);
-void set_note(int chan, note_t n, int octave, bool);
+void set_note(int chan, note_t n, int octave);
 float note_to_freq(note_t n, int octave);
 
 void init_distortion(bool enable, float dist, float dist_volume);

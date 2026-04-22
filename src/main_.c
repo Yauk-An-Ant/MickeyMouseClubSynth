@@ -7,7 +7,6 @@
 #include "hardware/clocks.h"
 #include "queue.h"
 #include "audio.h"
-#include "sequencer.h"
 
 int main() {
     //code here
@@ -22,7 +21,6 @@ int main() {
 
     keypad_init_pins();
     keypad_init_timer();
-    sequencer_init();
 
     init_pwm_audio();
 
@@ -58,8 +56,8 @@ int main() {
             }
 
             switch(key) {
-                // case 'A': if(octave < 6) octave++; printf("octave: %d\n", octave); break;
-                // case 'B': if(octave > 2) octave--; printf("octave: %d\n", octave); break;
+                case 'A': if(octave < 6) octave++; printf("octave: %d\n", octave); break;
+                case 'B': if(octave > 2) octave--; printf("octave: %d\n", octave); break;
                 case 'C':
                     if(wave == SINE) {
                         printf("Triangle Wave\n");
@@ -97,19 +95,6 @@ int main() {
                         init_wavetable(SAWTOOTH);
                         wave = SAWTOOTH;
                     }
-                case 'A':
-                    if (mode == RECORD)
-                        sequencer_set_mode(IDLE);
-                    else
-                        sequencer_set_mode(RECORD);
-                    break;
-                case 'B':
-                    if (mode == PLAY)
-                        sequencer_set_mode(IDLE);
-                    else
-                        sequencer_set_mode(PLAY);
-                    break;
-                default:
                     break;
             }
         } else {
@@ -129,7 +114,6 @@ int main() {
             // }
 
         }
-        
     }
     return 0;
 }
