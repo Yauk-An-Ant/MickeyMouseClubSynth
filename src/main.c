@@ -5,14 +5,13 @@
 // ---------------
 //   Piano keys (play notes, octave-dependent):
 //     1  2  3  4  5  6  7  *  0
-//   (keys 8, 9, C, D, #, A, B are reserved — see below)
+//   (keys 8, 9, C, #, A, B are reserved — see below.  D is unused.)
 //
 //   Menu nav (always active):
-//     C   next menu        (was "prev wave", now menu navigation)
-//     8   prev menu        (was a piano key, now menu navigation)
+//     C   next menu / next row / +1 step
+//     8   prev menu / prev row / -1 step
 //     9   deeper / refresh (enter EDIT, drill into row, or refresh pots on Base)
 //     #   back one level   (EDIT_VALUE → EDIT → BROWSE)
-//     D   cycle wave       (Sine → Triangle → Saw → Square)
 //
 //   Octave:  A = up, B = down (clamped 2..6)
 //
@@ -69,6 +68,13 @@
       gpio_put(PIN_nRESET, 1);
       gpio_set_function(PIN_SCK, GPIO_FUNC_SPI);
       gpio_set_function(PIN_SDI, GPIO_FUNC_SPI);
+      // NOTE: LCD SPI speed was originally 100 MHz, but the current spikes
+      // from full-screen DMA fills (triggered on every menu switch) were
+      // coupling into the 3V3 rail and appearing as static on the PWM audio
+      // output.  Dropping to 25 MHz makes the spikes ~4x smaller and
+      // proportionally longer, which measurably reduces the audible pop.
+      // A full-screen fill at 25 MHz takes ~45 ms instead of ~11 ms, which
+      // is still fast enough that you can't see it.
       spi_init(spi1, 25 * 1000 * 1000);
       spi_set_format(spi1, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
   }
@@ -119,7 +125,6 @@ int main(void) {
 #endif
 
     uint octave  = 3;
-    wave_t wave  = SINE;
 
     // ----------------------------------------------------------------- loop
     for (;;) {
@@ -159,21 +164,9 @@ int main(void) {
                 break;
             }
 
-            // D cycles wave (C used to share this role; C is menu-only now).
-            if (key == 'D') {
-                if (!pressed) break;
-                switch (wave) {
-                    case SINE:     wave = TRIANGLE; break;
-                    case TRIANGLE: wave = SAWTOOTH; break;
-                    case SAWTOOTH: wave = SQUARE;   break;
-                    case SQUARE:   wave = SINE;     break;
-                }
-                init_wavetable(wave);
-                printf("wave: %d\n", (int)wave);
-                break;
-            }
-
-            // Piano keys.
+            // Piano keys.  (D is available — key_index returns -1 for it,
+            // so it falls through harmlessly.  The Waveform menu covers
+            // wave-type changes.)
             int k = key_index(key);
             if (k < 0) break;
 

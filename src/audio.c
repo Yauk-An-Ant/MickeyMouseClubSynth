@@ -62,6 +62,30 @@ void pwm_audio_handler() {
         }
     }
 
+    float x = (float)mix / 16384.0f;
+
+    if (distortion_enabled) {
+        x = apply_distortion(x);
+    }
+
+    x = apply_eq(x);
+
+    if(flanger_enabled) {
+        x = apply_flanger(x);
+    }
+
+    if(delay_enabled) {
+        x = apply_delay(x);
+    }
+
+    if (x > 1.0f)
+        x = 1.0f + (x - 1.0f) / (1.0f + (x - 1.0f));
+    if (x < -1.0f)
+        x = -1.0f + (x + 1.0f) / (1.0f - (x + 1.0f));
+
+    mix = (int32_t)(x * 16384.0f);
+
+    // final safety clamp
     if(mix > 16383) mix = 16383;
     if(mix < -16384) mix = -16384;
 
