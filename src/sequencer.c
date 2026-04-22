@@ -20,7 +20,7 @@ void sequencer_set_mode(sequencer_mode_t m) {
     if (m == PLAY) {
         play_index = 0;
         tick_count = 0;
-        set_note(steps[0].channel, steps[0].note, steps[0].octave);
+        set_note(steps[0].channel, steps[0].note, steps[0].octave, step[0].tie);
     }
     if (m == IDLE) {
        // stop_current_step_voice();
@@ -49,7 +49,7 @@ void sequencer_next() {
         if (prev_ch < MAX_VOICES)
             voices[prev_ch].active = 0;
         play_index = next_index;
-        set_note(steps[play_index].channel, steps[play_index].note, steps[play_index].octave);
+        set_note(steps[play_index].channel, steps[play_index].note, steps[play_index].octave, steps[play_index].tie);
     } else {
         play_index = next_index;
     }
