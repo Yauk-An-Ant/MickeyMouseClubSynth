@@ -20,6 +20,12 @@
 //     0   toggle PLAY     (press once to loop the pattern, again to stop.
 //                         Ignored if no pattern has been recorded.)
 //
+//     Chords: piano keys pressed within ~50 ms of each other during
+//             RECORD are merged into one step (up to 4 notes).
+//     Ties:   keys held across step boundaries (400 ms) during RECORD
+//             produce tie steps — the note keeps ringing without a
+//             re-attack on playback.
+//
 // Menus (left → right):
 //   Base        — ASDR + master volume (pots on GPIO 41..45, press 9 to refresh)
 //   Waveform    — shows current wave + preview
@@ -198,12 +204,13 @@ int main(void) {
                     voices[voice].envelope_state = ATTACK;
                     voices[voice].envelope_level = 0.0f;
 
-                    // If we're recording, capture this note into the pattern.
-                    // tie=false means every note retriggers (no ties from
-                    // the keypad — you'd add a modifier key for that).
+                    // Capture the note-on into the sequencer.  The
+                    // sequencer figures out by itself whether this is a
+                    // single note, a chord (if another key came in within
+                    // ~50 ms), or a tie (if the key was already held
+                    // across a step boundary).  Ignored outside RECORD.
                     if (mode == RECORD) {
-                        record((note_t)k, (uint8_t)octave,
-                               (uint8_t)voice, /*tie=*/false);
+                        record_note_on((note_t)k, (uint8_t)octave);
                     }
                 }
             } else {
@@ -212,6 +219,9 @@ int main(void) {
                     voices[voice].envelope_state = RELEASE;
                 }
                 key_voice[k] = -1;
+                if (mode == RECORD) {
+                    record_note_off((note_t)k, (uint8_t)octave);
+                }
             }
         } while (0);
 

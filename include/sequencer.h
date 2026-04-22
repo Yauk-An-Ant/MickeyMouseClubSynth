@@ -25,13 +25,14 @@
 
 #define SEQ_MAX_STEPS    128
 #define SEQ_STEP_TICKS   8000   // at 20 kHz IRQ: 8000 ticks = 400 ms = 150 BPM
+#define SEQ_MAX_CHORD    4      // max notes per step
 
 typedef struct {
-    note_t  note;
-    uint8_t octave;
-    uint8_t channel;    // voice slot (0..MAX_VOICES-1)
-    bool    tie;        // if true, inherits the previous step's note (no retrigger)
-    bool    is_rest;    // if true, this step is silence — `note` and `octave` ignored
+    note_t  notes[SEQ_MAX_CHORD];
+    uint8_t octaves[SEQ_MAX_CHORD];
+    uint8_t num_notes;   // 0 = rest, 1 = single note, 2..SEQ_MAX_CHORD = chord
+    bool    tie;         // true = don't retrigger; hold previous step's notes
+    bool    is_rest;     // true when the step is silence (num_notes also 0)
 } Step;
 
 typedef enum {
@@ -43,15 +44,22 @@ typedef enum {
 extern Step              steps[SEQ_MAX_STEPS];
 extern uint8_t           length;
 extern uint8_t           play_index;
-extern uint32_t          tick_count;      // was uint8_t — overflowed every 256 ticks!
+extern uint32_t          tick_count;
 extern sequencer_mode_t  mode;
 
 void sequencer_init(void);
 void sequencer_set_mode(sequencer_mode_t m);
-void record(note_t n, uint8_t octave, uint8_t channel, bool tie);
+
+// Call from main.c on every piano key press / release during RECORD.  The
+// sequencer assembles chords (simultaneous presses within a ~50 ms window)
+// and ties (keys held across step boundaries) automatically.  Outside of
+// RECORD mode these calls are ignored.
+void record_note_on(note_t n, uint8_t octave);
+void record_note_off(note_t n, uint8_t octave);
+
 void sequencer_next(void);
 
-// Call from the audio IRQ (or any fixed-rate source).  Cheap: two int ops.
+// Call from the audio IRQ (or any fixed-rate source).  Cheap: a few int ops.
 void sequencer_process(void);
 
 #endif // SEQUENCER_H
