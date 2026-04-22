@@ -1,4 +1,5 @@
 #include "audio.h"
+#include "sequencer.h"   // for sequencer_process() called once per sample
 
 void pwm_audio_handler() {
     uint slice = 8u + (((36) >> 1u) & 3u);
@@ -6,6 +7,9 @@ void pwm_audio_handler() {
     int active_count = 0;
 
     pwm_hw->intr = 1ul << slice;
+    // Advance the sequencer clock.  Cheap (one int increment + compare) and
+    // gives us rock-steady tempo regardless of what the main loop is doing.
+    sequencer_process();
 
     
     for(int i = 0; i < MAX_VOICES; i++) {
