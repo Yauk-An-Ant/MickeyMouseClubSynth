@@ -1,42 +1,29 @@
 //============================================================================
-// main.c  --  Full synth + TFT menu + sequencer.
+// main.c  --  Full synth + TFT menu + sequencer with EEPROM persistence.
 //
 // Control surface
 // ---------------
-//   Piano keys (7 available — * and 0 were given to the sequencer):
-//     1  2  3  4  5  6  7
+//   Piano keys (7 available): 1 2 3 4 5 6 7
 //
 //   Menu nav:
 //     C   next menu / next row / +1 step
 //     8   prev menu / prev row / -1 step
-//     9   deeper / refresh (enter EDIT, drill into row, or refresh pots on Base)
-//     #   back one level   (EDIT_VALUE → EDIT → BROWSE)
+//     9   deeper / refresh
+//     #   back one level
 //
 //   Octave:  A = up, B = down (clamped 2..6)
 //
 //   Sequencer:
-//     *   toggle RECORD   (press once to start, again to stop.  Starting
-//                         recording wipes the previous pattern.)
-//     0   toggle PLAY     (press once to loop the pattern, again to stop.
-//                         Ignored if no pattern has been recorded.)
+//     *   toggle RECORD.  Starting a new recording wipes the in-memory
+//                         pattern; stopping recording writes it to EEPROM.
+//     0   toggle PLAY.    Ignored if no pattern exists.
 //
-//     Chords: piano keys pressed within ~50 ms of each other during
-//             RECORD are merged into one step (up to 4 notes).
-//     Ties:   keys held across step boundaries (400 ms) during RECORD
-//             produce tie steps — the note keeps ringing without a
-//             re-attack on playback.
-//
-// Menus (left → right):
-//   Base        — ASDR + master volume (pots on GPIO 41..45, press 9 to refresh)
-//   Waveform    — shows current wave + preview
-//   Distortion  — Power / Drive / Volume
-//   Flanger     — Power / Depth / Rate / Feedback / Mix
-//   Delay       — Power / Time / Mix / Feedback
-//   Equalizer   — Low / Mid / High
-//
-// Build flags
-//   USE_TFT_MENU must be defined for every TU.  In platformio.ini:
-//     build_flags = -DUSE_TFT_MENU
+// Persistence
+// -----------
+//   At boot, if the EEPROM contains a valid saved pattern, it is loaded
+//   into the sequencer automatically.  After every recording session
+//   (when you press '*' to stop), the pattern is saved to EEPROM.  Power
+//   cycles and resets preserve your last recording.
 //============================================================================
 #include <stdio.h>
 #include <math.h>
@@ -51,6 +38,7 @@
 #include "audio.h"
 #include "support.h"
 #include "sequencer.h"
+#include "eeprom.h"
 
 #ifdef USE_TFT_MENU
   #include "hardware/spi.h"
@@ -77,8 +65,6 @@
       gpio_put(PIN_nRESET, 1);
       gpio_set_function(PIN_SCK, GPIO_FUNC_SPI);
       gpio_set_function(PIN_SDI, GPIO_FUNC_SPI);
-      // 25 MHz — slower than 100 MHz but the current spikes from full-screen
-      // fills are ~4x smaller, reducing PWM audio noise on menu switches.
       spi_init(spi1, 25 * 1000 * 1000);
       spi_set_format(spi1, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
   }
@@ -92,7 +78,6 @@ int main(void) {
     keypad_init_timer();
     init_pwm_audio();
 
-    // Effect defaults.  The menu will overwrite these in menu_init() below.
     init_asdr(0.01f, 0.1f, 1.0f, 0.2f);
     init_distortion(true,  0.3f, 0.8f);
     init_eq(0.5f, 0.5f, 0.5f);
@@ -108,11 +93,19 @@ int main(void) {
     }
 
     // ---- Sequencer --------------------------------------------------------
-    // Must come AFTER init_pwm_audio() since the sequencer tick clock is
-    // driven from the PWM IRQ.  sequencer_init() itself just zeroes state —
-    // the IRQ calls sequencer_process() which checks mode and does nothing
-    // in SEQ_IDLE.
     sequencer_init();
+
+    // ---- EEPROM + restore previous session --------------------------------
+    // eeprom_init() verifies the chip responds AND writes work by doing a
+    // quick write/readback on the last EEPROM byte.  If it fails we carry
+    // on without persistence rather than refusing to boot.
+    if (eeprom_init()) {
+        if (eeprom_load_sequencer()) {
+            printf("main: restored %u-step pattern from EEPROM\n", length);
+        }
+    } else {
+        printf("main: EEPROM offline — session-only sequencer\n");
+    }
 
     // ---- TFT + menu -------------------------------------------------------
 #ifdef USE_TFT_MENU
@@ -125,6 +118,10 @@ int main(void) {
 #endif
 
     uint octave = 3;
+
+    // Tracks the previous sequencer mode so we can detect the RECORD →
+    // SEQ_IDLE transition and trigger an auto-save.
+    sequencer_mode_t prev_mode = mode;
 
     // ----------------------------------------------------------------- loop
     for (;;) {
@@ -140,27 +137,30 @@ int main(void) {
             if (key == '8' || key == '9' || key == 'C' || key == '#') {
                 if (pressed) {
                     menu_handle_key(key);
-                    init_asdr(attack_time, decay_time, sustain_level, release_time);
+                    init_asdr(attack_time, decay_time,
+                              sustain_level, release_time);
                 }
-                // Releases ignored — no key auto-repeat in this build.
                 break;
             }
 #endif
 
             // -------- Octave controls ------------------------------------
             if (key == 'A') {
-                if (pressed && octave < 6) { octave++; printf("octave: %d\n", octave); }
+                if (pressed && octave < 6) {
+                    octave++;
+                    printf("octave: %d\n", octave);
+                }
                 break;
             }
             if (key == 'B') {
-                if (pressed && octave > 2) { octave--; printf("octave: %d\n", octave); }
+                if (pressed && octave > 2) {
+                    octave--;
+                    printf("octave: %d\n", octave);
+                }
                 break;
             }
 
             // -------- Sequencer mode toggles -----------------------------
-            // '*' toggles RECORD on/off.  Starting record wipes the pattern.
-            // '0' toggles PLAY   on/off.  Ignored if pattern is empty.
-            // Both handle press-only; releases are harmless (fall through).
             if (key == '*') {
                 if (pressed) {
                     if (mode == RECORD) {
@@ -191,10 +191,6 @@ int main(void) {
             // -------- Piano keys -----------------------------------------
             int k = key_index(key);
             if (k < 0) break;
-            // key_index() returns slots 9 and 10 for '*' and '0', but we've
-            // already handled those above and broken out.  Same for 8/9/#
-            // in the menu branch.  So by the time we reach here, k maps to
-            // one of the 1..7 note slots.
 
             if (pressed) {
                 int voice = allocate_voice();
@@ -203,12 +199,6 @@ int main(void) {
                     set_note(voice, (note_t)k, octave);
                     voices[voice].envelope_state = ATTACK;
                     voices[voice].envelope_level = 0.0f;
-
-                    // Capture the note-on into the sequencer.  The
-                    // sequencer figures out by itself whether this is a
-                    // single note, a chord (if another key came in within
-                    // ~50 ms), or a tie (if the key was already held
-                    // across a step boundary).  Ignored outside RECORD.
                     if (mode == RECORD) {
                         record_note_on((note_t)k, (uint8_t)octave);
                     }
@@ -224,6 +214,15 @@ int main(void) {
                 }
             }
         } while (0);
+
+        // ---- Auto-save on RECORD → SEQ_IDLE transition -------------------
+        // Done here (not inside sequencer_set_mode) so the multi-ms
+        // EEPROM write never runs from an IRQ.
+        if (prev_mode == RECORD && mode == SEQ_IDLE) {
+            printf("main: auto-saving pattern...\n");
+            eeprom_save_sequencer();   // best-effort; errors printed inside
+        }
+        prev_mode = mode;
 
         // ---- LCD refresh ----------------------------------------------
 #ifdef USE_TFT_MENU
