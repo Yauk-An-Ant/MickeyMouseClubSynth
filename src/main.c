@@ -1,29 +1,28 @@
 //============================================================================
-// main.c  --  Full synth + TFT menu + sequencer with EEPROM persistence.
+// main.c  --  Full synth + drum machine + TFT menu + sequencer + EEPROM.
 //
 // Control surface
 // ---------------
-//   Piano keys (7 available): 1 2 3 4 5 6 7
+//   Keys 1-7:  depends on mode (see D below)
+//     synth mode (default): piano notes C D E F G A B at the current octave
+//     drum mode:            1=kick, 2=snare, 3=hihat, 4=clap,
+//                           5=cowbell, 6=ride, 7=tom
+//
+//   D          toggle between synth mode and drum mode (press only)
 //
 //   Menu nav:
-//     C   next menu / next row / +1 step
-//     8   prev menu / prev row / -1 step
-//     9   deeper / refresh
-//     #   back one level
+//     C        next menu / next row / +1 step
+//     8        prev menu / prev row / -1 step
+//     9        deeper / refresh
+//     #        back one level
 //
-//   Octave:  A = up, B = down (clamped 2..6)
+//   Octave:    A up, B down (synth mode only; ignored in drum mode).
 //
 //   Sequencer:
-//     *   toggle RECORD.  Starting a new recording wipes the in-memory
-//                         pattern; stopping recording writes it to EEPROM.
-//     0   toggle PLAY.    Ignored if no pattern exists.
-//
-// Persistence
-// -----------
-//   At boot, if the EEPROM contains a valid saved pattern, it is loaded
-//   into the sequencer automatically.  After every recording session
-//   (when you press '*' to stop), the pattern is saved to EEPROM.  Power
-//   cycles and resets preserve your last recording.
+//     *        toggle RECORD.  Captures synth notes only.  Drum hits
+//              during RECORD are heard live but NOT stored to the
+//              pattern.  The sequencer playback is synth-only.
+//     0        toggle PLAY.    Ignored if no pattern exists.
 //============================================================================
 #include <stdio.h>
 #include <math.h>
@@ -39,6 +38,7 @@
 #include "support.h"
 #include "sequencer.h"
 #include "eeprom.h"
+#include "drum.h"
 
 #ifdef USE_TFT_MENU
   #include "hardware/spi.h"
@@ -70,20 +70,9 @@
   }
 #endif
 
-int main(void) {
-    stdio_init_all();
-
-    // ---- Keypad + audio ---------------------------------------------------
-    keypad_init_pins();
-    keypad_init_timer();
-    init_pwm_audio();
-
-    init_asdr(0.01f, 0.1f, 1.0f, 0.2f);
-    init_distortion(true,  0.3f, 0.8f);
-    init_eq(0.5f, 0.5f, 0.5f);
-    init_flanger(false, 0.6f, 0.003f, 0.4f, 0.5f);
-    init_delay(false, 0.1f, 0.4f, 1.0f);
-
+// --- Audio state reset -----------------------------------------------------
+// Called after any init step that might have scribbled on voice state.
+static void reset_audio_state(void) {
     for (int i = 0; i < MAX_VOICES; i++) {
         voices[i].active         = 0;
         voices[i].step           = 0;
@@ -91,14 +80,46 @@ int main(void) {
         voices[i].envelope_state = IDLE;
         voices[i].envelope_level = 0.0f;
     }
+    for (int i = 0; i < 12; i++) key_voice[i] = -1;
+}
+
+// Kill any currently-sustaining synth voices.  Used when we toggle into
+// drum mode so stuck notes don't drone through the drum performance.
+static void release_all_synth_voices(void) {
+    for (int i = 0; i < MAX_VOICES; i++) {
+        if (voices[i].envelope_state != IDLE) {
+            voices[i].envelope_state = RELEASE;
+        }
+    }
+    for (int i = 0; i < 12; i++) key_voice[i] = -1;
+}
+
+int main(void) {
+    stdio_init_all();
+    sleep_ms(500);   // give USB stdio a chance to attach
+
+    // ---- Keypad + audio ---------------------------------------------------
+    keypad_init_pins();
+    keypad_init_timer();
+    init_pwm_audio();
+    drum_init();
+
+    init_asdr(0.05f, 0.2f, 0.8f, 0.3f);
+    init_distortion(false, 0.3f, 0.8f);
+    init_eq(0.5f, 0.5f, 0.5f);
+    init_flanger(false, 0.6f, 0.003f, 0.4f, 0.5f);
+    init_delay(false, 0.1f, 0.4f, 1.0f);
+
+    // Force volume to max.  If globals.c left it at 0, every note plays
+    // at silence and you'd hear only a click transient on press.
+    volume = 1800;
+
+    reset_audio_state();
 
     // ---- Sequencer --------------------------------------------------------
     sequencer_init();
 
     // ---- EEPROM + restore previous session --------------------------------
-    // eeprom_init() verifies the chip responds AND writes work by doing a
-    // quick write/readback on the last EEPROM byte.  If it fails we carry
-    // on without persistence rather than refusing to boot.
     if (eeprom_init()) {
         if (eeprom_load_sequencer()) {
             printf("main: restored %u-step pattern from EEPROM\n", length);
@@ -106,6 +127,8 @@ int main(void) {
     } else {
         printf("main: EEPROM offline — session-only sequencer\n");
     }
+    sequencer_set_mode(SEQ_IDLE);
+    reset_audio_state();
 
     // ---- TFT + menu -------------------------------------------------------
 #ifdef USE_TFT_MENU
@@ -115,12 +138,17 @@ int main(void) {
     pots_init();
     menu_init();
     init_asdr(attack_time, decay_time, sustain_level, release_time);
+    if (volume <= 0) {
+        printf("main: menu_init zeroed volume; forcing to max\n");
+        volume = 1800;
+    }
+    reset_audio_state();
 #endif
 
-    uint octave = 3;
+    printf("main: ready (synth mode)\n");
 
-    // Tracks the previous sequencer mode so we can detect the RECORD →
-    // SEQ_IDLE transition and trigger an auto-save.
+    uint octave     = 3;
+    bool drum_mode  = false;    // false = synth (1..7 = piano), true = drums
     sequencer_mode_t prev_mode = mode;
 
     // ----------------------------------------------------------------- loop
@@ -144,7 +172,28 @@ int main(void) {
             }
 #endif
 
+            // -------- Mode toggle (D) ------------------------------------
+            // Toggles 1..7 between piano and drums.  On leaving synth
+            // mode we release any held voices so nothing drones into
+            // the drum performance.
+            if (key == 'D') {
+                if (pressed) {
+                    drum_mode = !drum_mode;
+                    if (drum_mode) {
+                        release_all_synth_voices();
+                        printf("mode: DRUM (1=kick 2=snare 3=hihat "
+                               "4=clap 5=cowbell 6=ride 7=tom)\n");
+                    } else {
+                        printf("mode: SYNTH (1..7 = piano, oct %u)\n",
+                               octave);
+                    }
+                }
+                break;
+            }
+
             // -------- Octave controls ------------------------------------
+            // Octave is only meaningful in synth mode, but it's fine to
+            // adjust anywhere — just takes effect when you come back.
             if (key == 'A') {
                 if (pressed && octave < 6) {
                     octave++;
@@ -188,11 +237,32 @@ int main(void) {
                 break;
             }
 
-            // -------- Piano keys -----------------------------------------
+            // -------- Keys 1..7: route by mode ---------------------------
             int k = key_index(key);
-            if (k < 0) break;
+            if (k < 0 || k > 6) break;   // only digits 1..7 route here
 
+            if (drum_mode) {
+                // Drums: only trigger on press (one-shot samples).
+                // Releases ignored — the sample plays to completion.
+                // Drums are live-only; the sequencer records synth
+                // notes only.
+                if (pressed) {
+                    drum_trigger((uint8_t)k);
+                }
+                break;
+            }
+
+            // --- Synth (piano) path ---
             if (pressed) {
+                // If the key somehow still holds a stale voice from a
+                // missed release, clean it up before grabbing a new one.
+                int old_voice = key_voice[k];
+                if (old_voice >= 0 && old_voice < MAX_VOICES) {
+                    voices[old_voice].envelope_state = IDLE;
+                    voices[old_voice].active         = 0;
+                    key_voice[k] = -1;
+                }
+
                 int voice = allocate_voice();
                 if (voice >= 0) {
                     key_voice[k] = voice;
@@ -216,11 +286,9 @@ int main(void) {
         } while (0);
 
         // ---- Auto-save on RECORD → SEQ_IDLE transition -------------------
-        // Done here (not inside sequencer_set_mode) so the multi-ms
-        // EEPROM write never runs from an IRQ.
         if (prev_mode == RECORD && mode == SEQ_IDLE) {
             printf("main: auto-saving pattern...\n");
-            eeprom_save_sequencer();   // best-effort; errors printed inside
+            eeprom_save_sequencer();
         }
         prev_mode = mode;
 

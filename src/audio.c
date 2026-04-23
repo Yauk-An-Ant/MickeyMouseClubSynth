@@ -1,5 +1,6 @@
 #include "audio.h"
-#include "sequencer.h"   // for sequencer_process() called once per sample
+#include "sequencer.h"
+#include "drum.h"
 
 void pwm_audio_handler() {
     uint slice = 8u + (((36) >> 1u) & 3u);
@@ -7,11 +8,10 @@ void pwm_audio_handler() {
     int active_count = 0;
 
     pwm_hw->intr = 1ul << slice;
-    // Advance the sequencer clock.  Cheap (one int increment + compare) and
-    // gives us rock-steady tempo regardless of what the main loop is doing.
+
     sequencer_process();
 
-    
+    // ---- Synth voices ----------------------------------------------------
     for(int i = 0; i < MAX_VOICES; i++) {
         if(voices[i].active && voices[i].envelope_state != IDLE) {
             voices[i].offset += voices[i].step;
@@ -43,7 +43,7 @@ void pwm_audio_handler() {
                     if(env <= 0.01f) {
                         env = 0.0f;
                         voices[i].envelope_state = IDLE;
-                        voices[i].active = 0;   // NOW we turn it off
+                        voices[i].active = 0;
                     }
                     break;
                 case IDLE:
@@ -66,21 +66,18 @@ void pwm_audio_handler() {
         }
     }
 
+    // ---- Drums -----------------------------------------------------------
+    // Mixed into the same accumulator so the effects chain applies to
+    // drums too.  drum_mix_sample() advances all active samples one tick
+    // and returns a signed contribution centred at zero.
+    mix += drum_mix_sample();
+
     float x = (float)mix / 16384.0f;
 
-    if (distortion_enabled) {
-        x = apply_distortion(x);
-    }
-
+    if (distortion_enabled) x = apply_distortion(x);
     x = apply_eq(x);
-
-    if(flanger_enabled) {
-        x = apply_flanger(x);
-    }
-
-    if(delay_enabled) {
-        x = apply_delay(x);
-    }
+    if (flanger_enabled)    x = apply_flanger(x);
+    if (delay_enabled)      x = apply_delay(x);
 
     if (x > 1.0f)
         x = 1.0f + (x - 1.0f) / (1.0f + (x - 1.0f));
@@ -89,13 +86,13 @@ void pwm_audio_handler() {
 
     mix = (int32_t)(x * 16384.0f);
 
-    // final safety clamp
-    if(mix > 16383) mix = 16383;
-    if(mix < -16384) mix = -16384;
+    // Master volume (0..1800 → 0..1 linear) applied to the signed mix.
     mix = (mix * volume) / 1800;
 
-    uint32_t samp = (uint32_t)(mix + 16384);
+    if (mix >  16383) mix =  16383;
+    if (mix < -16384) mix = -16384;
 
+    uint32_t samp = (uint32_t)(mix + 16384);
     samp = samp * pwm_hw->slice[slice].top / (1ul << 16);
     hw_write_masked(
         &pwm_hw->slice[slice].cc,
@@ -113,9 +110,9 @@ void init_pwm_audio() {
     pwm_hw->slice[slice].top = ((clock_get_hz(clk_sys) / 150)/RATE) - 1;
     hw_write_masked(&pwm_hw->slice[slice].cc, ((uint)(0)) << (channel ? PWM_CH0_CC_B_LSB : PWM_CH0_CC_A_LSB), channel ? PWM_CH0_CC_B_BITS : PWM_CH0_CC_A_BITS);
     hw_write_masked(&pwm_hw->slice[slice].csr, 1ul << PWM_CH0_CSR_EN_LSB, PWM_CH0_CSR_EN_BITS);
-    
+
     init_wavetable(SINE);
-    
+
     pwm_hw->intr = 1u << slice;
     pwm_irqn_set_slice_enabled(0, slice, true);
     pwm_set_irq_enabled(slice, true);
@@ -126,28 +123,27 @@ void init_pwm_audio() {
         key_voice[i] = -1;
 }
 
-int key_index(char key) { 
-    switch(key) { 
-        case '1': return 0; 
-        case '2': return 1; 
-        case '3': return 2; 
-        case '4': return 3; 
-        case '5': return 4; 
-        case '6': return 5; 
-        case '7': return 6; 
-        case '8': return 7; 
-        case '9': return 8; 
-        case '*': return 9; 
-        case '0': return 10; 
-        case '#': return 11; 
-        default: return -1; 
-    } 
+int key_index(char key) {
+    switch(key) {
+        case '1': return 0;
+        case '2': return 1;
+        case '3': return 2;
+        case '4': return 3;
+        case '5': return 4;
+        case '6': return 5;
+        case '7': return 6;
+        case '8': return 7;
+        case '9': return 8;
+        case '*': return 9;
+        case '0': return 10;
+        case '#': return 11;
+        default:  return -1;
+    }
 }
 
-int allocate_voice() { 
-    for(int i = 0; i < MAX_VOICES; i++) { 
-        if(!voices[i].active) 
-            return i; 
-    } 
-    return -1; 
+int allocate_voice() {
+    for(int i = 0; i < MAX_VOICES; i++) {
+        if(!voices[i].active) return i;
+    }
+    return -1;
 }
