@@ -92,6 +92,7 @@ void pwm_audio_handler() {
     // final safety clamp
     if(mix > 16383) mix = 16383;
     if(mix < -16384) mix = -16384;
+    mix = (mix * volume) / 1800;
 
     uint32_t samp = (uint32_t)(mix + 16384);
 
